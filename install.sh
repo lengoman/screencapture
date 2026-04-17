@@ -20,9 +20,14 @@ fi
 
 # Check if cargo is installed
 if ! command -v cargo &> /dev/null; then
-    echo -e "${RED}Error: cargo is not installed. Please install Rust and Cargo first.${NC}"
-    echo "Visit https://rustup.rs/ for installation instructions."
-    exit 1
+    echo -e "${BLUE}Cargo is not installed. Installing Rust and Cargo natively...${NC}"
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source "$HOME/.cargo/env"
+    
+    if ! command -v cargo &> /dev/null; then
+        echo -e "${RED}Error: Failed to install Rust automatically. Please install it manually from https://rustup.rs/ and try again.${NC}"
+        exit 1
+    fi
 fi
 
 # Create a temporary directory
