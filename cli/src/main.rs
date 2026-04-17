@@ -213,7 +213,7 @@ async fn capture_handler(
         if let Some(session) = agents.get(&agent_id) {
             session.tx.send(Ok(CaptureCommand {
                 command_id: cmd_id.clone(),
-                monitor_idx: target_monitor as u32,
+                monitor_idx: target_monitor as i32,
             })).await.is_ok()
         } else {
             false
