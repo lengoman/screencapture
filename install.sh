@@ -77,6 +77,7 @@ fi
 
 # Copy the binaries to the bin directory
 echo -e "${BLUE}Installing binaries...${NC}"
+rm -f "$HOME/.local/bin/screencapture"
 cp "target/release/screencapture" "$HOME/.local/bin/screencapture"
 
 # Make them executable

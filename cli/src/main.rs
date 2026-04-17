@@ -43,6 +43,8 @@ enum Commands {
         #[arg(long)]
         capture: Option<usize>,
     },
+    /// Updates screencapture to the latest version directly from GitHub
+    Update,
 }
 
 #[tokio::main]
@@ -77,6 +79,18 @@ async fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Agent { id, server, capture } => {
             run_agent(id, server, capture).await?;
+        }
+        Commands::Update => {
+            println!("Downloading and building latest updates from repository...");
+            let status = std::process::Command::new("sh")
+                .arg("-c")
+                .arg("curl -sSL https://raw.githubusercontent.com/lengoman/screencapture/main/install.sh | bash")
+                .status()?;
+            
+            if !status.success() {
+                eprintln!("Update pipeline failed. Check logs above.");
+                std::process::exit(1);
+            }
         }
     }
     Ok(())
