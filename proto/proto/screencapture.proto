@@ -11,6 +11,7 @@ service ScreenCaptureService {
 
 message AgentRegistration {
   string agent_id = 1; // "laptop-1"
+  int32 monitor_count = 2; // Number of connected screens
 }
 
 message CaptureCommand {

@@ -108,8 +108,14 @@ type AgentTx = mpsc::Sender<Result<CaptureCommand, Status>>;
 type PendingCaptures = Arc<Mutex<std::collections::HashMap<String, oneshot::Sender<Vec<u8>>>>>;
 
 #[derive(Clone)]
+struct AgentSession {
+    tx: AgentTx,
+    monitor_count: u32,
+}
+
+#[derive(Clone)]
 struct AppState {
-    agents: Arc<Mutex<std::collections::HashMap<String, AgentTx>>>,
+    agents: Arc<Mutex<std::collections::HashMap<String, AgentSession>>>,
     pending: PendingCaptures,
 }
 
@@ -125,11 +131,13 @@ impl ScreenCaptureService for MyScreenCaptureService {
         &self,
         request: Request<AgentRegistration>,
     ) -> Result<Response<Self::ConnectAgentStream>, Status> {
-        let agent_id = request.into_inner().agent_id;
-        println!("Agent connected: {}", agent_id);
+        let req = request.into_inner();
+        let agent_id = req.agent_id;
+        let monitor_count = req.monitor_count;
+        println!("Agent connected: {} ({} screens)", agent_id, monitor_count);
 
         let (tx, rx) = mpsc::channel(4);
-        self.app_state.agents.lock().await.insert(agent_id, tx);
+        self.app_state.agents.lock().await.insert(agent_id, AgentSession { tx, monitor_count: monitor_count as u32 });
 
         Ok(Response::new(ReceiverStream::new(rx)))
     }
@@ -169,29 +177,43 @@ impl ScreenCaptureService for MyScreenCaptureService {
     }
 }
 
+#[derive(serde::Serialize)]
+struct AgentInfo {
+    id: String,
+    screens: u32,
+}
+
 async fn agents_handler(
     AxumState(state): AxumState<AppState>,
 ) -> impl IntoResponse {
     let agents = state.agents.lock().await;
-    let keys: Vec<String> = agents.keys().cloned().collect();
-    axum::Json(keys)
+    let info: Vec<AgentInfo> = agents.iter().map(|(id, session)| AgentInfo {
+        id: id.clone(),
+        screens: session.monitor_count,
+    }).collect();
+    axum::Json(info)
 }
 
 async fn capture_handler(
     AxumPath(agent_id): AxumPath<String>,
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
     AxumState(state): AxumState<AppState>,
 ) -> impl IntoResponse {
     let cmd_id = Uuid::new_v4().to_string();
     let (tx, rx) = oneshot::channel();
 
+    let target_monitor = query.get("screen")
+        .and_then(|m| m.parse::<usize>().ok())
+        .unwrap_or(0);
+
     state.pending.lock().await.insert(cmd_id.clone(), tx);
 
     let sent = {
         let agents = state.agents.lock().await;
-        if let Some(agent_tx) = agents.get(&agent_id) {
-            agent_tx.send(Ok(CaptureCommand {
+        if let Some(session) = agents.get(&agent_id) {
+            session.tx.send(Ok(CaptureCommand {
                 command_id: cmd_id.clone(),
-                monitor_idx: 0,
+                monitor_idx: target_monitor as u32,
             })).await.is_ok()
         } else {
             false
@@ -332,7 +354,11 @@ async fn run_agent(id: String, server_url: String, capture: Option<usize>) -> Re
         return Ok(());
     }
 
-    let req = tonic::Request::new(AgentRegistration { agent_id: id.clone() });
+    let monitor_count = Monitor::all().map(|m| m.len()).unwrap_or(1) as i32;
+    let req = tonic::Request::new(AgentRegistration { 
+        agent_id: id.clone(),
+        monitor_count
+    });
     
     let mut stream = client.connect_agent(req).await?.into_inner();
     println!("Connected to gRPC server at {}. Waiting for capture commands...", server_url);

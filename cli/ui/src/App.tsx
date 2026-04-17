@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
 
+interface AgentInfo {
+  id: string;
+  screens: number;
+}
+
 function App() {
-  const [agents, setAgents] = useState<string[]>([]);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [timestamps, setTimestamps] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
@@ -25,8 +30,9 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  const triggerCapture = (agentId: string) => {
-    setTimestamps(prev => ({ ...prev, [agentId]: Date.now() }));
+  const triggerCapture = (agentId: string, screenId: number) => {
+    const key = `${agentId}-${screenId}`;
+    setTimestamps(prev => ({ ...prev, [key]: Date.now() }));
   };
 
   return (
@@ -45,36 +51,44 @@ function App() {
           </div>
         )}
         
-        {agents.map((id) => (
-          <div key={id} className="agent-card">
-            <div className="card-header">
-              <h2>{id}</h2>
-              <button 
-                onClick={() => triggerCapture(id)}
-                className="capture-btn"
-              >
-                Pull Screenshot
-              </button>
-            </div>
-            
-            <div className="image-container">
-              {timestamps[id] ? (
-                <img 
-                  src={`/api/v1/capture/${id}?t=${timestamps[id]}`} 
-                  alt={`Screenshot ${id}`} 
-                  className="screenshot"
-                />
-              ) : (
-                <div className="placeholder">
-                  Click 'Pull Screenshot' to fetch the active monitor
+        {agents.flatMap((agent) => {
+          // Fallback to 1 if screens is missing or 0 to ensure it always renders at least the default card
+          const screenCount = Math.max(1, agent.screens || 1);
+          return Array.from({ length: screenCount }).map((_, screenId) => {
+            const key = `${agent.id}-${screenId}`;
+            return (
+              <div key={key} className="agent-card">
+                <div className="card-header">
+                  <h2>{agent.id} {screenCount > 1 && `(Display ${screenId})`}</h2>
+                  <button 
+                    onClick={() => triggerCapture(agent.id, screenId)}
+                    className="capture-btn"
+                  >
+                    Pull Screenshot
+                  </button>
                 </div>
-              )}
-            </div>
-          </div>
-        ))}
+                
+                <div className="image-container">
+                  {timestamps[key] ? (
+                    <img 
+                      src={`/api/v1/capture/${agent.id}?screen=${screenId}&t=${timestamps[key]}`} 
+                      alt={`Screenshot ${agent.id}`} 
+                      className="screenshot"
+                    />
+                  ) : (
+                    <div className="placeholder">
+                      Click 'Pull Screenshot' to fetch this display
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          });
+        })}
       </main>
     </div>
   );
 }
 
 export default App;
+
