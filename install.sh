@@ -24,7 +24,7 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         echo -e "\n${RED}Error: Linux system windowing libraries are missing!${NC}"
         echo -e "The 'xcap' crate requires OS-level X11 and Wayland packages to compile."
         echo -e "Please run the following to install the dependencies on Ubuntu/Debian:"
-        echo -e "  ${GREEN}sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libx11-dev libxrandr-dev libxext-dev libegl-dev libegl1-mesa-dev${NC}"
+        echo -e "  ${GREEN}sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libx11-dev libxrandr-dev libxext-dev libegl-dev libegl1-mesa-dev libpipewire-0.3-dev libspa-0.2-dev${NC}"
         echo -e "\nThen retry running this curl command!\n"
         exit 1
     fi
