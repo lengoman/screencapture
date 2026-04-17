@@ -13,4 +13,9 @@ tonic = "0.11"
 prost = "0.12"
 axum = "0.6"
 uuid = { version = "1.8", features = ["v4"] }
+rust-embed = "8.2.0"
+mime_guess = "2.0.4"
 proto = { path = "../proto" }
+
+[build-dependencies]
+

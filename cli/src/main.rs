@@ -6,7 +6,8 @@ use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 use tonic::{transport::Server, Request, Response, Status};
 use uuid::Uuid;
-use axum::{extract::Path as AxumPath, extract::State as AxumState, response::IntoResponse, routing::get, Router};
+use axum::{extract::Path as AxumPath, extract::State as AxumState, response::IntoResponse, routing::get, Router, http::Uri};
+use rust_embed::RustEmbed;
 
 use proto::screencapture::screen_capture_service_server::{ScreenCaptureService, ScreenCaptureServiceServer};
 use proto::screencapture::screen_capture_service_client::ScreenCaptureServiceClient;
@@ -25,7 +26,7 @@ struct Cli {
 enum Commands {
     /// List all available monitors
     List,
-    /// Start the unified Server (HTTP + gRPC hub)
+    /// Start the unified Server (HTTP + gRPC hub + Web UI)
     Serve {
         #[arg(long, default_value_t = 50051)]
         grpc_port: u16,
@@ -84,6 +85,10 @@ async fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 // =======================
 // SERVER MODE
 // =======================
+
+#[derive(RustEmbed)]
+#[folder = "ui/dist/"]
+struct Assets;
 
 type AgentTx = mpsc::Sender<Result<CaptureCommand, Status>>;
 type PendingCaptures = Arc<Mutex<std::collections::HashMap<String, oneshot::Sender<Vec<u8>>>>>;
@@ -150,6 +155,14 @@ impl ScreenCaptureService for MyScreenCaptureService {
     }
 }
 
+async fn agents_handler(
+    AxumState(state): AxumState<AppState>,
+) -> impl IntoResponse {
+    let agents = state.agents.lock().await;
+    let keys: Vec<String> = agents.keys().cloned().collect();
+    axum::Json(keys)
+}
+
 async fn capture_handler(
     AxumPath(agent_id): AxumPath<String>,
     AxumState(state): AxumState<AppState>,
@@ -199,6 +212,37 @@ async fn capture_handler(
     }
 }
 
+async fn static_handler(uri: Uri) -> impl IntoResponse {
+    let mut path = uri.path().trim_start_matches('/').to_string();
+
+    if path.is_empty() {
+        path = "index.html".to_string();
+    }
+
+    match Assets::get(path.as_str()) {
+        Some(content) => {
+            let mime = mime_guess::from_path(path).first_or_octet_stream();
+            (
+                [(axum::http::header::CONTENT_TYPE, mime.as_ref())],
+                content.data
+            ).into_response()
+        }
+        None => {
+            if let Some(index) = Assets::get("index.html") {
+                (
+                    [(axum::http::header::CONTENT_TYPE, "text/html")],
+                    index.data
+                ).into_response()
+            } else {
+                (
+                    axum::http::StatusCode::NOT_FOUND,
+                    "404 Not Found"
+                ).into_response()
+            }
+        }
+    }
+}
+
 async fn run_server(grpc_port: u16, http_port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         agents: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -217,6 +261,8 @@ async fn run_server(grpc_port: u16, http_port: u16) -> Result<(), Box<dyn std::e
     let http_addr: std::net::SocketAddr = format!("0.0.0.0:{}", http_port).parse()?;
     let app = Router::new()
         .route("/api/v1/capture/:agent_id", get(capture_handler))
+        .route("/api/v1/agents", get(agents_handler))
+        .fallback(static_handler)
         .with_state(state);
         
     println!("HTTP listening on: http://{}", http_addr);
