@@ -26,6 +26,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// List all available monitors
+    List,
     /// Start the unified Server (HTTP + gRPC hub)
     Serve {
         #[arg(long, default_value_t = 50051)]
@@ -39,6 +41,9 @@ enum Commands {
         id: String,
         #[arg(long)]
         server: String, // e.g: http://127.0.0.1:50051
+        /// Optional: Immediately capture this monitor and push to server, instead of listening
+        #[arg(long)]
+        capture: Option<usize>,
     },
     /// Local legacy capture commands
     Local {
@@ -103,11 +108,27 @@ async fn main() {
 
 async fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
+        Commands::List => {
+            match Monitor::all() {
+                Ok(monitors) => {
+                    for (i, m) in monitors.iter().enumerate() {
+                        let name = m.name().unwrap_or_else(|_| "<unknown>".to_string());
+                        let w = m.width().unwrap_or(0);
+                        let h = m.height().unwrap_or(0);
+                        println!("{}: {} ({}x{})", i, name, w, h);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to enumerate monitors: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
         Commands::Serve { grpc_port, http_port } => {
             run_server(grpc_port, http_port).await?;
         }
-        Commands::Agent { id, server } => {
-            run_agent(id, server).await?;
+        Commands::Agent { id, server, capture } => {
+            run_agent(id, server, capture).await?;
         }
         Commands::Local { wait_for_keys, cmd } => {
             run_local(wait_for_keys, cmd).await?;
@@ -155,11 +176,30 @@ impl ScreenCaptureService for MyScreenCaptureService {
         request: Request<ScreenshotResponse>,
     ) -> Result<Response<SubmitAck>, Status> {
         let req = request.into_inner();
-        let cmd_id = req.command_id;
+        let cmd_id = req.command_id.clone();
         
         let mut pending = self.app_state.pending.lock().await;
+        let mut handled = false;
         if let Some(tx) = pending.remove(&cmd_id) {
-            let _ = tx.send(req.image_data);
+            let _ = tx.send(req.image_data.clone());
+            handled = true;
+        }
+
+        if !handled {
+            let dir = std::path::Path::new("received_images");
+            if !dir.exists() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+            let safe_filename = if cmd_id.is_empty() {
+                format!("screenshot_push_{}.png", now)
+            } else {
+                format!("screenshot_push_{}_{}.png", cmd_id, now)
+            };
+            let file_path = dir.join(&safe_filename);
+            if let Ok(_) = std::fs::write(&file_path, &req.image_data) {
+                println!("Got push screenshot, saved to {:?}", file_path);
+            }
         }
 
         Ok(Response::new(SubmitAck { received: true }))
@@ -250,8 +290,44 @@ async fn run_server(grpc_port: u16, http_port: u16) -> Result<(), Box<dyn std::e
 // AGENT MODE
 // =======================
 
-async fn run_agent(id: String, server_url: String) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_agent(id: String, server_url: String, capture: Option<usize>) -> Result<(), Box<dyn std::error::Error>> {
     let mut client = ScreenCaptureServiceClient::connect(server_url.clone()).await?;
+
+    if let Some(mon_idx) = capture {
+        let monitors = Monitor::all().unwrap_or_default();
+        if mon_idx < monitors.len() {
+            let m = &monitors[mon_idx];
+            let width = m.width().unwrap_or(0);
+            let height = m.height().unwrap_or(0);
+            match m.capture_region(0, 0, width, height) {
+                Ok(img) => {
+                    let mut bytes: Vec<u8> = Vec::new();
+                    let mut cursor = std::io::Cursor::new(&mut bytes);
+                    if let Err(e) = img.write_to(&mut cursor, image::ImageFormat::Png) {
+                        eprintln!("Failed to encode to Png: {}", e);
+                    } else {
+                        let res = ScreenshotResponse {
+                            command_id: String::new(),
+                            image_data: bytes,
+                            success: true,
+                            error_message: String::new(),
+                        };
+                        println!("Pushing capture for monitor {} via gRPC...", mon_idx);
+                        if let Err(e) = client.submit_screenshot(tonic::Request::new(res)).await {
+                            eprintln!("Failed to push capture: {}", e);
+                        } else {
+                            println!("Push successful!");
+                        }
+                    }
+                }
+                Err(e) => eprintln!("Failed to capture: {}", e),
+            }
+        } else {
+            eprintln!("Monitor index {} out of bounds", mon_idx);
+        }
+        return Ok(());
+    }
+
     let req = tonic::Request::new(AgentRegistration { agent_id: id.clone() });
     
     let mut stream = client.connect_agent(req).await?.into_inner();
