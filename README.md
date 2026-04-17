@@ -41,8 +41,3 @@ Navigate your web browser or send a GET request precisely to:
 ```bash
 http://localhost:8080/api/v1/capture/laptop-1
 ```
-
-**Local captures are still supported:**
-```bash
-screencapture local capture-full --monitor 0 --output target.png
-```
