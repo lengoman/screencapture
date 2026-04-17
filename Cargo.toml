@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "cli",
-    "proto",
-    "server"
+    "proto"
 ]
 resolver = "2"

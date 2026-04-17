@@ -3,16 +3,28 @@ syntax = "proto3";
 package screencapture;
 
 service ScreenCaptureService {
-  rpc SendScreenshot(ScreenshotRequest) returns (ScreenshotResponse);
+  // The Client registers here and listens for commands
+  rpc ConnectAgent(AgentRegistration) returns (stream CaptureCommand);
+  // The Client uploads the requested screenshot here
+  rpc SubmitScreenshot(ScreenshotResponse) returns (SubmitAck);
 }
 
-message ScreenshotRequest {
-  bytes image_data = 1;
-  string filename = 2; // For suggesting a filename
-  int64 timestamp = 3;
+message AgentRegistration {
+  string agent_id = 1; // "laptop-1"
+}
+
+message CaptureCommand {
+  string command_id = 1; // A correlation ID (UUID)
+  int32 monitor_idx = 2; // Which screen to capture
 }
 
 message ScreenshotResponse {
-  bool success = 1;
-  string message = 2;
+  string command_id = 1;
+  bytes image_data = 2;
+  bool success = 3;
+  string error_message = 4;
+}
+
+message SubmitAck {
+  bool received = 1;
 }

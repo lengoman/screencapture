@@ -66,15 +66,13 @@ fi
 # Copy the binaries to the bin directory
 echo -e "${BLUE}Installing binaries...${NC}"
 cp "target/release/screencapture" "$HOME/.local/bin/screencapture"
-cp "target/release/server" "$HOME/.local/bin/screencapture-server"
 
 # Make them executable
 chmod +x "$HOME/.local/bin/screencapture"
-chmod +x "$HOME/.local/bin/screencapture-server"
 
 echo -e "${GREEN}Installation successful!${NC}"
-echo -e "You can now use ${GREEN}screencapture${NC} and ${GREEN}screencapture-server${NC} from the command line."
-echo -e "Example: screencapture --grpc-url http://127.0.0.1:50051 capture-full --monitor 0 --output test.png"
+echo -e "You can now use ${GREEN}screencapture${NC} from the command line."
+echo -e "Run: screencapture serve (or agent, or local)"
 
 # Check if PATH is fully sourced, and warn if not
 if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then

@@ -26,15 +26,23 @@ If you prefer not to use `curl`, simply build via Cargo:
 
 ## Usage Examples
 
-**Start your gRPC Server first:**
+**Start your Server first (HTTP on :8080, gRPC on :50051):**
 ```bash
-screencapture-server
+screencapture serve --grpc-port 50051 --http-port 8080
 ```
 
-**Capture a fullscreen frame using your shortcut keys globally:**
+**Connect your computer as an Agent:**
 ```bash
-screencapture --wait-for-keys --grpc-url http://127.0.0.1:50051 capture-full --monitor 0 --output target.png
+screencapture agent --id "laptop-1" --server http://127.0.0.1:50051
 ```
 
-## Note about `.keys` files
-When deploying with `--wait-for-keys`, the `screencapture` binary looks for a `.keys` file in your *current working directory* specifying the activation shortcut. Standard key combinations look like: `CMD+SHIFT+M` or `CTRL+ALT+S`. Ensure it is configured if utilizing the wait flags.
+**Trigger a remote screenshot:**
+Navigate your web browser or send a GET request precisely to:
+```bash
+http://localhost:8080/api/v1/capture/laptop-1
+```
+
+**Local captures are still supported:**
+```bash
+screencapture local capture-full --monitor 0 --output target.png
+```
