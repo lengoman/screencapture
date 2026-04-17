@@ -2,7 +2,7 @@
 set -e
 
 # Default repository URL - change this to your actual repository URL
-REPO_URL="https://github.com/ivanarambula/screencapture.git"
+REPO_URL="https://github.com/lengoman/screencapture.git"
 
 # Colors for output
 GREEN='\033[0;32m'
