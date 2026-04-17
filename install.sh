@@ -18,6 +18,18 @@ if ! command -v git &> /dev/null; then
     exit 1
 fi
 
+# Linux specific dependencies check for xcap
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    if ! command -v pkg-config &> /dev/null || ! pkg-config --exists wayland-client 2>/dev/null; then
+        echo -e "\n${RED}Error: Linux system windowing libraries are missing!${NC}"
+        echo -e "The 'xcap' crate requires OS-level X11 and Wayland packages to compile."
+        echo -e "Please run the following to install the dependencies on Ubuntu/Debian:"
+        echo -e "  ${GREEN}sudo apt-get update && sudo apt-get install -y pkg-config libwayland-dev libx11-dev libxrandr-dev libxext-dev${NC}"
+        echo -e "\nThen retry running this curl command!\n"
+        exit 1
+    fi
+fi
+
 # Check if cargo is installed
 if ! command -v cargo &> /dev/null; then
     echo -e "${BLUE}Cargo is not installed. Installing Rust and Cargo natively...${NC}"
