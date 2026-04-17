@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package screencapture;
+
+service ScreenCaptureService {
+  rpc SendScreenshot(ScreenshotRequest) returns (ScreenshotResponse);
+}
+
+message ScreenshotRequest {
+  bytes image_data = 1;
+  string filename = 2; // For suggesting a filename
+  int64 timestamp = 3;
+}
+
+message ScreenshotResponse {
+  bool success = 1;
+  string message = 2;
+}
