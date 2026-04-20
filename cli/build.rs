@@ -12,8 +12,10 @@ fn main() {
 
     println!("Building React UI...");
 
+    let npm_cmd = if cfg!(target_os = "windows") { "npm.cmd" } else { "npm" };
+
     // npm install
-    let status = Command::new("npm")
+    let status = Command::new(npm_cmd)
         .current_dir("ui")
         .arg("install")
         .status()
@@ -24,7 +26,7 @@ fn main() {
     }
 
     // npm run build
-    let status = Command::new("npm")
+    let status = Command::new(npm_cmd)
         .current_dir("ui")
         .arg("run")
         .arg("build")
