@@ -64,31 +64,47 @@ cargo build --workspace --release
 mkdir -p "$HOME/.local/bin"
 
 # Export to PATH logic
+NEEDS_RESTART=false
+RC_FILE="~/.bashrc"
 if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
     if [ -f "$HOME/.bashrc" ]; then
         echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+        RC_FILE="~/.bashrc"
     fi
     if [ -f "$HOME/.zshrc" ]; then
         echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+        RC_FILE="~/.zshrc"
+    fi
+    # If standard rc files don't exist, we might be on a simple MSYS/GitBash setup
+    if [[ ! -f "$HOME/.bashrc" && ! -f "$HOME/.zshrc" ]]; then
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bash_profile"
+        RC_FILE="~/.bash_profile"
     fi
     export PATH="$HOME/.local/bin:$PATH"
+    NEEDS_RESTART=true
     echo -e "${BLUE}Added ~/.local/bin to PATH and updated shell rc files.${NC}"
+fi
+
+# Determine executable name based on OS
+BIN_NAME="screencapture"
+if [ -f "target/release/screencapture.exe" ]; then
+    BIN_NAME="screencapture.exe"
 fi
 
 # Copy the binaries to the bin directory
 echo -e "${BLUE}Installing binaries...${NC}"
-rm -f "$HOME/.local/bin/screencapture"
-cp "target/release/screencapture" "$HOME/.local/bin/screencapture"
+rm -f "$HOME/.local/bin/$BIN_NAME"
+cp "target/release/$BIN_NAME" "$HOME/.local/bin/$BIN_NAME"
 
 # Make them executable
-chmod +x "$HOME/.local/bin/screencapture"
+chmod +x "$HOME/.local/bin/$BIN_NAME"
 
 echo -e "${GREEN}Installation successful!${NC}"
-echo -e "You can now use ${GREEN}screencapture${NC} from the command line."
-echo -e "Run: screencapture serve (or agent, or local)"
+echo -e "You can now use ${GREEN}$BIN_NAME${NC} from the command line."
+echo -e "Run: $BIN_NAME serve (or agent, or local)"
 
-# Check if PATH is fully sourced, and warn if not
-if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
-    echo -e "\n${GREEN}Note:${NC} ~/.local/bin was added to your PATH, but you may need to restart your shell."
-    echo "Run: source ~/.bashrc (or ~/.zshrc if you use zsh)"
+# Check if restart is needed
+if [ "$NEEDS_RESTART" = true ]; then
+    echo -e "\n${GREEN}Note:${NC} ~/.local/bin was added to your PATH. To use the command immediately, you may need to restart your shell or run:"
+    echo "  source $RC_FILE"
 fi

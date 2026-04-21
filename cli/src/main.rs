@@ -291,7 +291,9 @@ async fn run_server(grpc_port: u16, http_port: u16) -> Result<(), Box<dyn std::e
     println!("Starting Server Modes...");
     println!("gRPC listening on: {}", grpc_addr);
     let grpc_future = Server::builder()
-        .add_service(ScreenCaptureServiceServer::new(grpc_service))
+        .add_service(ScreenCaptureServiceServer::new(grpc_service)
+            .max_decoding_message_size(256 * 1024 * 1024)
+            .max_encoding_message_size(256 * 1024 * 1024))
         .serve(grpc_addr);
 
     let http_addr: std::net::SocketAddr = format!("0.0.0.0:{}", http_port).parse()?;
@@ -316,16 +318,20 @@ async fn run_server(grpc_port: u16, http_port: u16) -> Result<(), Box<dyn std::e
 // AGENT MODE
 // =======================
 
-async fn run_agent(id: String, server_url: String, capture: Option<usize>) -> Result<(), Box<dyn std::error::Error>> {
-    let mut client = ScreenCaptureServiceClient::connect(server_url.clone()).await?;
+async fn connect_client(url: String) -> Result<ScreenCaptureServiceClient<tonic::transport::Channel>, tonic::transport::Error> {
+    let client = ScreenCaptureServiceClient::connect(url).await?;
+    Ok(client.max_decoding_message_size(256 * 1024 * 1024).max_encoding_message_size(256 * 1024 * 1024))
+}
 
+async fn run_agent(id: String, server_url: String, capture: Option<usize>) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(mon_idx) = capture {
+        let mut client = connect_client(server_url.clone()).await?;
         let monitors = Monitor::all().unwrap_or_default();
         if mon_idx < monitors.len() {
             let m = &monitors[mon_idx];
             let width = m.width().unwrap_or(0);
             let height = m.height().unwrap_or(0);
-            match m.capture_region(0, 0, width, height) {
+            match m.capture_image() {
                 Ok(img) => {
                     let mut bytes: Vec<u8> = Vec::new();
                     let mut cursor = std::io::Cursor::new(&mut bytes);
@@ -354,55 +360,87 @@ async fn run_agent(id: String, server_url: String, capture: Option<usize>) -> Re
         return Ok(());
     }
 
-    let monitor_count = Monitor::all().map(|m| m.len()).unwrap_or(1) as i32;
-    let req = tonic::Request::new(AgentRegistration { 
-        agent_id: id.clone(),
-        monitor_count
-    });
-    
-    let mut stream = client.connect_agent(req).await?.into_inner();
-    println!("Connected to gRPC server at {}. Waiting for capture commands...", server_url);
+    loop {
+        println!("Attempting to connect to gRPC server at {}...", server_url);
+        match connect_client(server_url.clone()).await {
+            Ok(mut client) => {
+                let monitor_count = Monitor::all().map(|m| m.len()).unwrap_or(1) as i32;
+                let req = tonic::Request::new(AgentRegistration { 
+                    agent_id: id.clone(),
+                    monitor_count
+                });
+                
+                match client.connect_agent(req).await {
+                    Ok(response) => {
+                        let mut stream = response.into_inner();
+                        println!("Connected to gRPC server at {}. Waiting for capture commands...", server_url);
 
-    while let Some(msg) = stream.next().await {
-        let msg = msg?;
-        let cmd_id = msg.command_id;
-        let mon_idx = msg.monitor_idx as usize;
-        
-        println!("Received capture command {}. Capturing monitor {}", cmd_id, mon_idx);
-        
-        let monitors = Monitor::all().unwrap_or_default();
-        if mon_idx < monitors.len() {
-            let m = &monitors[mon_idx];
-            let width = m.width().unwrap_or(0);
-            let height = m.height().unwrap_or(0);
-            
-            match m.capture_region(0, 0, width, height) {
-                Ok(img) => {
-                    let mut bytes: Vec<u8> = Vec::new();
-                    let mut cursor = std::io::Cursor::new(&mut bytes);
-                    if let Err(e) = img.write_to(&mut cursor, image::ImageFormat::Png) {
-                        eprintln!("Failed to encode to Png: {}", e);
-                    } else {
-                        let res = ScreenshotResponse {
-                            command_id: cmd_id.clone(),
-                            image_data: bytes,
-                            success: true,
-                            error_message: String::new(),
-                        };
-                        let mut temp_client = ScreenCaptureServiceClient::connect(server_url.clone()).await?;
-                        if let Err(e) = temp_client.submit_screenshot(tonic::Request::new(res)).await {
-                            eprintln!("Failed to upload capture: {}", e);
-                        } else {
-                            println!("Capture {} uploaded successfully.", cmd_id);
+                        while let Some(msg_result) = stream.next().await {
+                            match msg_result {
+                                Ok(msg) => {
+                                    let cmd_id = msg.command_id;
+                                    let mon_idx = msg.monitor_idx as usize;
+                                    
+                                    println!("Received capture command {}. Capturing monitor {}", cmd_id, mon_idx);
+                                    
+                                    let monitors = Monitor::all().unwrap_or_default();
+                                    if mon_idx < monitors.len() {
+                                        let m = &monitors[mon_idx];
+                                        let width = m.width().unwrap_or(0);
+                                        let height = m.height().unwrap_or(0);
+                                        
+                                        match m.capture_image() {
+                                            Ok(img) => {
+                                                let mut bytes: Vec<u8> = Vec::new();
+                                                let mut cursor = std::io::Cursor::new(&mut bytes);
+                                                if let Err(e) = img.write_to(&mut cursor, image::ImageFormat::Png) {
+                                                    eprintln!("Failed to encode to Png: {}", e);
+                                                } else {
+                                                    let res = ScreenshotResponse {
+                                                        command_id: cmd_id.clone(),
+                                                        image_data: bytes,
+                                                        success: true,
+                                                        error_message: String::new(),
+                                                    };
+                                                    match connect_client(server_url.clone()).await {
+                                                        Ok(mut temp_client) => {
+                                                            if let Err(e) = temp_client.submit_screenshot(tonic::Request::new(res)).await {
+                                                                eprintln!("Failed to upload capture: {}", e);
+                                                            } else {
+                                                                println!("Capture {} uploaded successfully.", cmd_id);
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            eprintln!("Failed to connect to upload capture: {}", e);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => eprintln!("Failed to capture: {}", e),
+                                        }
+                                    } else {
+                                        eprintln!("Command requested monitor {}, but only {} are available.", mon_idx, monitors.len());
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Stream error: {}", e);
+                                    break;
+                                }
+                            }
                         }
+                        println!("Connection to server ended. Reconnecting...");
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to register agent: {}", e);
                     }
                 }
-                Err(e) => eprintln!("Failed to capture: {}", e),
             }
-        } else {
-            eprintln!("Command requested monitor {}, but only {} are available.", mon_idx, monitors.len());
+            Err(e) => {
+                eprintln!("Failed to connect to server: {}", e);
+            }
         }
+        
+        println!("Retrying in 5 seconds...");
+        tokio::time::sleep(Duration::from_secs(5)).await;
     }
-    
-    Ok(())
 }
